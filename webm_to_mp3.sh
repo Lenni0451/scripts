@@ -15,3 +15,9 @@ for input in *.webm; do
 done
 
 echo "Conversion complete."
+
+#ChatGPT Notes:
+#Notes:
+# -vn disables video.
+# -acodec libmp3lame specifies the MP3 codec.
+# -q:a 2 controls audio quality (lower is better; range 0–9).
