@@ -1,0 +1,13 @@
+#!/bin/bash
+
+container=$(sudo docker ps -aqf "name=^portainer$")
+image=$(sudo docker images -q "portainer/portainer-ce")
+
+echo stopping...
+sudo docker container stop $container
+echo removing...
+sudo docker container rm $container
+echo removing image...
+sudo docker rmi $image
+echo starting...
+sudo bash portainer.sh
