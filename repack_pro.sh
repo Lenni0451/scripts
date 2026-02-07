@@ -1,8 +1,9 @@
 #!/bin/bash
 
 # ==============================================================================
-# Repack Master - Arch Linux Edition (v5 - Final Fix)
+# Repack Master - Arch Linux Edition (v7 - Final)
 # Repacks archives to highly compressed, resilient formats.
+# Dependencies: 7z, (optional: rar), awk, numfmt (coreutils)
 #
 # Usage: ./repack.sh [-t] [-d] [-z | -r] [-s] [-v] file1 [file2 ...]
 #
@@ -27,25 +28,39 @@ USE_TMP=0
 DELETE_ORIG=0
 VERBOSE=0
 SOLID_MODE=0
-MODE="7z" # Default mode
+MODE="7z"
 
 # Colors
 GREEN='\033[0;32m'
 RED='\033[0;31m'
 BLUE='\033[0;34m'
 YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
 NC='\033[0m'
 
-# --- 1. Helper Function: Run Command Verbose or Silent ---
-run_cmd() {
-    if [ "$VERBOSE" -eq 1 ]; then
-        "$@"
-    else
-        "$@" > /dev/null 2>&1
+# --- 1. Global Trap (Ctrl+C Handler) ---
+cleanup_and_exit() {
+    echo -e "\n${RED}!!! Script Aborted by User !!!${NC}"
+    # Remove the current work_dir if variable is set and dir exists
+    if [ -n "${work_dir:-}" ] && [ -d "$work_dir" ]; then
+        echo -e "${RED}Cleaning up temporary files...${NC}"
+        rm -rf "$work_dir"
     fi
+    exit 130
+}
+trap cleanup_and_exit SIGINT
+
+# --- 2. Helper Functions ---
+run_cmd() {
+    if [ "$VERBOSE" -eq 1 ]; then "$@"; else "$@" > /dev/null 2>&1; fi
 }
 
-# --- 2. Argument Parsing ---
+format_size() {
+    # Uses numfmt (standard in Arch coreutils)
+    numfmt --to=iec-i --suffix=B "$1"
+}
+
+# --- 3. Argument Parsing ---
 while getopts "tdzrvs" opt; do
   case $opt in
     t) USE_TMP=1 ;;
@@ -64,112 +79,111 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
-# Check for 'rar' binary if RAR mode is selected
 if [ "$MODE" == "rar" ] && ! command -v rar &> /dev/null; then
-    echo -e "${RED}Error: 'rar' command not found. Install it with: sudo pacman -S rar${NC}"
+    echo -e "${RED}Error: 'rar' not found. (sudo pacman -S rar)${NC}"
     exit 1
 fi
 
-# --- 3. Main Loop ---
+# --- 4. Main Loop ---
 for full_path in "$@"; do
-    # Normalize path
-    full_path=$(realpath "$full_path")
-    
+    start_time=$(date +%s)
+
+    # Resolve Path
     if [ ! -f "$full_path" ]; then
-        echo -e "${RED}Skipping: $full_path (Not a file)${NC}"
-        continue
+        # Check if it's a valid file before running realpath to avoid errors
+        if [ -f "$(realpath "$full_path" 2>/dev/null)" ]; then
+             full_path=$(realpath "$full_path")
+        else
+             echo -e "${RED}Skipping: $full_path (Not a file)${NC}"
+             continue
+        fi
+    else
+        full_path=$(realpath "$full_path")
     fi
 
+    # Capture Stats
+    orig_size_bytes=$(stat -c%s "$full_path")
     filename=$(basename "$full_path")
     dirname=$(dirname "$full_path")
     basename="${filename%.*}"
-    
-    # Determine Output Format & Command
+
+    # Settings Logic
     case $MODE in
         zip)
             ext="zip"
             cmd_tool="7z"
             cmd_args=(a -tzip -mm=LZMA -mx=9 -md=64m -mfb=64)
             type_label="ZIP (LZMA)"
-            if [ "$SOLID_MODE" -eq 1 ]; then
-                echo -e "${YELLOW}Note: Zip format does not support Solid compression. Ignoring -s.${NC}"
-            fi
             ;;
         rar)
             ext="rar"
             cmd_tool="rar"
             if [ "$SOLID_MODE" -eq 1 ]; then
-                cmd_args=(a -ma5 -m5 -md64m -s)
-                type_label="RAR5 (Best / Solid)"
+                 cmd_args=(a -ma5 -m5 -md64m -s)
+                 type_label="RAR5 (Solid)"
             else
-                cmd_args=(a -ma5 -m5 -md64m)
-                type_label="RAR5 (Best / Non-Solid)"
+                 cmd_args=(a -ma5 -m5 -md64m)
+                 type_label="RAR5 (Non-Solid)"
             fi
             ;;
-        *) # Default to 7z
+        *)
             ext="7z"
             cmd_tool="7z"
             if [ "$SOLID_MODE" -eq 1 ]; then
-                cmd_args=(a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on)
-                type_label="7z (LZMA2 / Solid)"
+                 cmd_args=(a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on)
+                 type_label="7z (LZMA2 / Solid)"
             else
-                cmd_args=(a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=off)
-                type_label="7z (LZMA2 / Non-Solid)"
+                 cmd_args=(a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=off)
+                 type_label="7z (LZMA2 / Non-Solid)"
             fi
             ;;
     esac
 
-    # Calculate initial output name
+    # Determine Output Name
     output_file="${dirname}/${basename}.${ext}"
-    
-    # --- SMART OVERWRITE LOGIC ---
-    if [ "$full_path" == "$output_file" ]; then
-        if [ "$DELETE_ORIG" -eq 1 ]; then
-            echo -e "${YELLOW}Warning: Replacing original file (Delete flag active).${NC}"
-        else
-            output_file="${dirname}/${basename}_repacked.${ext}"
-            echo -e "${GREEN}Safety: Output renamed to ${basename}_repacked.${ext}${NC}"
-        fi
+    if [ "$full_path" == "$output_file" ] && [ "$DELETE_ORIG" -eq 0 ]; then
+        output_file="${dirname}/${basename}_repacked.${ext}"
     fi
 
     echo -e "${BLUE}---------------------------------------------------${NC}"
     echo -e "${BLUE}Processing: $filename${NC}"
     echo -e "${BLUE}Target:     $type_label${NC}"
 
-    # --- Step A: Workspace Creation (FIXED) ---
+    # --- Step A: Workspace ---
+    # Logic: Only use RAM if -t is requested AND there is enough space.
+    work_dir=""
+    extract_source=""
+
+    # Check RAM requirements if -t is used
+    use_ram_safe=0
     if [ "$USE_TMP" -eq 1 ]; then
-        # Check RAM safety
-        file_size=$(du -k "$full_path" | cut -f1)
         tmp_free=$(df -k /tmp | awk 'NR==2 {print $4}')
-        req_space=$((file_size * 3)) # Rough estimate: Input + Extracted + Output
-        
-        if [ "$req_space" -gt "$tmp_free" ]; then
-             echo -e "${YELLOW}Warning: Not enough RAM in /tmp. Falling back to DISK mode.${NC}"
-             # Fallback to disk: Create temp dir in the same folder as file
-             work_dir=$(mktemp -d -p "$dirname")
-             extract_source="$full_path"
+        # Req: 3x source size (KB)
+        req_space=$((orig_size_bytes / 1024 * 3))
+        if [ "$req_space" -lt "$tmp_free" ]; then
+            use_ram_safe=1
         else
-             # RAM Mode
-             work_dir=$(mktemp -d) # Defaults to /tmp
-             echo "  -> 🚀 Copying to RAM..."
-             cp "$full_path" "$work_dir/input_archive"
-             extract_source="$work_dir/input_archive"
+            echo -e "${YELLOW}Warning: Low RAM. Falling back to Disk Mode.${NC}"
         fi
+    fi
+
+    if [ "$use_ram_safe" -eq 1 ]; then
+        # Create in RAM
+        work_dir=$(mktemp -d)
+        echo "  -> 🚀 Copying to RAM..."
+        cp "$full_path" "$work_dir/input_archive"
+        extract_source="$work_dir/input_archive"
     else
-        # Disk Mode (Default): Create temp dir next to the file
+        # Create on Disk (same folder as file)
         work_dir=$(mktemp -d -p "$dirname")
         extract_source="$full_path"
     fi
-    
-    # Ensure cleanup on exit
-    trap "rm -rf '$work_dir'" EXIT
 
     # --- Step B: Extraction ---
     echo "  -> 📂 Extracting..."
     mkdir "$work_dir/content"
-    
     if ! run_cmd 7z x "$extract_source" -o"$work_dir/content"; then
-        echo -e "${RED}  -> Extraction Failed! Archive might be corrupt.${NC}"
+        echo -e "${RED}  -> Extraction Failed! (Corrupt archive?)${NC}"
         rm -rf "$work_dir"
         continue
     fi
@@ -177,35 +191,61 @@ for full_path in "$@"; do
     # --- Step C: Compression ---
     echo "  -> 📦 Compressing..."
     pushd "$work_dir/content" > /dev/null
-    
+
     if run_cmd "$cmd_tool" "${cmd_args[@]}" "../temp_output.${ext}" .; then
         popd > /dev/null
-        
+
         # --- Step D: Finalize ---
-        echo "  -> 💾 Moving result..."
-        
+        echo "  -> 💾 Saving..."
         mv -f "$work_dir/temp_output.${ext}" "$output_file"
-        
+
         if [ -f "$output_file" ]; then
-            echo -e "${GREEN}  -> Done: $(basename "$output_file")${NC}"
-            
+            end_time=$(date +%s)
+            duration=$((end_time - start_time))
+
+            # Stats Logic (Using AWK to replace BC)
+            new_size_bytes=$(stat -c%s "$output_file")
+            orig_human=$(format_size "$orig_size_bytes")
+            new_human=$(format_size "$new_size_bytes")
+
+            # Calculate Ratio
+            # Formula: (New - Old) / Old * 100
+            if [ "$orig_size_bytes" -gt 0 ]; then
+                ratio=$(awk -v new="$new_size_bytes" -v old="$orig_size_bytes" 'BEGIN { printf "%.2f", ((new - old) / old) * 100 }')
+            else
+                ratio="0.00"
+            fi
+
+            # Color Logic (Green if negative/smaller, Red if positive/bigger)
+            if [[ "$ratio" == -* ]]; then
+                 ratio_color=$GREEN
+            else
+                 ratio_color=$RED
+                 ratio="+$ratio" # Add plus sign for clarity
+            fi
+
+            echo -e "${GREEN}  -> Done!${NC}"
+            echo -e "     ${CYAN}Time:   ${duration}s${NC}"
+            echo -e "     ${CYAN}Size:   $orig_human -> $new_human${NC}"
+            echo -e "     ${CYAN}Change: ${ratio_color}${ratio}%${NC}"
+
+            # Delete Logic
             if [ "$DELETE_ORIG" -eq 1 ]; then
-                if [ "$full_path" != "$output_file" ]; then
-                    rm "$full_path"
-                    echo -e "${GREEN}  -> Original deleted.${NC}"
-                fi
+                 if [ "$full_path" != "$output_file" ]; then
+                     rm "$full_path"
+                     echo -e "${GREEN}  -> Original deleted.${NC}"
+                 fi
             fi
         else
             echo -e "${RED}  -> Error: Output file verification failed.${NC}"
         fi
     else
         popd > /dev/null
-        echo -e "${RED}  -> Compression step failed.${NC}"
+        echo -e "${RED}  -> Compression Failed.${NC}"
     fi
 
-    # Cleanup current loop iteration
+    # Cleanup
     rm -rf "$work_dir"
-    trap - EXIT
 done
 
 echo -e "${BLUE}All tasks complete.${NC}"
