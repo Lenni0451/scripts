@@ -1,24 +1,23 @@
 #!/bin/bash
 
 # ==============================================================================
-# Repack Master - Arch Linux Edition (v4)
+# Repack Master - Arch Linux Edition (v5 - Final Fix)
 # Repacks archives to highly compressed, resilient formats.
 #
 # Usage: ./repack.sh [-t] [-d] [-z | -r] [-s] [-v] file1 [file2 ...]
 #
 # Flags:
-#   -t  (Turbo/Tmp): Copy archive to /tmp (RAM) before processing.
+#   -t  (Turbo/Tmp): Use /tmp (RAM) for extraction and compression.
+#       FAST but dangerous for files larger than your free RAM.
 #   -d  (Delete): Delete/Replace the original archive after success.
 #   -z  (Zip Mode): Force output to .zip (LZMA algo).
 #   -r  (RAR5 Mode): Force output to .rar (RAR5 algo).
 #   -s  (Solid Mode): Enable SOLID compression (Smaller size, less resilient).
-#       * 7z: Enables -ms=on
-#       * RAR: Adds -s
-#       * Zip: Ignored (Zip does not support solid compression)
 #   -v  (Verbose): Show full output from compression tools.
 #
 # Defaults:
 #   Format: .7z (LZMA2 / Non-Solid)
+#   Work Dir: The same directory as the original file (Disk).
 # ==============================================================================
 
 set -u
@@ -89,7 +88,6 @@ for full_path in "$@"; do
     case $MODE in
         zip)
             ext="zip"
-            # ZIP: Force LZMA compression inside Zip container
             cmd_tool="7z"
             cmd_args=(a -tzip -mm=LZMA -mx=9 -md=64m -mfb=64)
             type_label="ZIP (LZMA)"
@@ -101,7 +99,6 @@ for full_path in "$@"; do
             ext="rar"
             cmd_tool="rar"
             if [ "$SOLID_MODE" -eq 1 ]; then
-                # -s: Solid archive
                 cmd_args=(a -ma5 -m5 -md64m -s)
                 type_label="RAR5 (Best / Solid)"
             else
@@ -113,11 +110,9 @@ for full_path in "$@"; do
             ext="7z"
             cmd_tool="7z"
             if [ "$SOLID_MODE" -eq 1 ]; then
-                # -ms=on: Enable Solid blocks
                 cmd_args=(a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=on)
                 type_label="7z (LZMA2 / Solid)"
             else
-                # -ms=off: Disable Solid blocks (Independent entries)
                 cmd_args=(a -t7z -m0=lzma2 -mx=9 -md=64m -mfb=64 -ms=off)
                 type_label="7z (LZMA2 / Non-Solid)"
             fi
@@ -141,25 +136,33 @@ for full_path in "$@"; do
     echo -e "${BLUE}Processing: $filename${NC}"
     echo -e "${BLUE}Target:     $type_label${NC}"
 
-    # Create Temp Workspace
-    work_dir=$(mktemp -d)
-    trap "rm -rf '$work_dir'" EXIT
-
-    # --- Step A: Setup Input ---
-    extract_source="$full_path"
+    # --- Step A: Workspace Creation (FIXED) ---
     if [ "$USE_TMP" -eq 1 ]; then
+        # Check RAM safety
         file_size=$(du -k "$full_path" | cut -f1)
         tmp_free=$(df -k /tmp | awk 'NR==2 {print $4}')
-        req_space=$((file_size * 3))
+        req_space=$((file_size * 3)) # Rough estimate: Input + Extracted + Output
         
         if [ "$req_space" -gt "$tmp_free" ]; then
-             echo -e "${YELLOW}Warning: Not enough RAM in /tmp. Falling back to disk mode.${NC}"
+             echo -e "${YELLOW}Warning: Not enough RAM in /tmp. Falling back to DISK mode.${NC}"
+             # Fallback to disk: Create temp dir in the same folder as file
+             work_dir=$(mktemp -d -p "$dirname")
+             extract_source="$full_path"
         else
+             # RAM Mode
+             work_dir=$(mktemp -d) # Defaults to /tmp
              echo "  -> 🚀 Copying to RAM..."
              cp "$full_path" "$work_dir/input_archive"
              extract_source="$work_dir/input_archive"
         fi
+    else
+        # Disk Mode (Default): Create temp dir next to the file
+        work_dir=$(mktemp -d -p "$dirname")
+        extract_source="$full_path"
     fi
+    
+    # Ensure cleanup on exit
+    trap "rm -rf '$work_dir'" EXIT
 
     # --- Step B: Extraction ---
     echo "  -> 📂 Extracting..."
@@ -179,7 +182,7 @@ for full_path in "$@"; do
         popd > /dev/null
         
         # --- Step D: Finalize ---
-        echo "  -> 💾 Moving result to disk..."
+        echo "  -> 💾 Moving result..."
         
         mv -f "$work_dir/temp_output.${ext}" "$output_file"
         
@@ -200,7 +203,7 @@ for full_path in "$@"; do
         echo -e "${RED}  -> Compression step failed.${NC}"
     fi
 
-    # Cleanup
+    # Cleanup current loop iteration
     rm -rf "$work_dir"
     trap - EXIT
 done
