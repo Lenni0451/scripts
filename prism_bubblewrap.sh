@@ -14,7 +14,8 @@ REAL_JAVA="$1"
 shift
 
 PRISM_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/PrismLauncher"
-
+export PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native"
+export ALSOFT_DRIVERS="pulse,alsa"
 BWRAP_ARGS=(
     # --- Namespace & Process Isolation ---
     --unshare-all
@@ -40,6 +41,14 @@ BWRAP_ARGS=(
     --tmpfs /var/tmp
     --tmpfs /run
     --tmpfs "$HOME"
+
+    # Recreate the directory structure in the empty tmpfs
+    --dir "$HOME/.config"
+    --dir "$HOME/.config/pulse"
+    # Mount the PulseAudio auth cookie
+    --ro-bind-try "$HOME/.config/pulse/cookie" "$HOME/.config/pulse/cookie"
+    # Optional: Mount OpenAL config in case you use custom HRTF/surround settings
+    --ro-bind-try "$HOME/.alsoftrc" "$HOME/.alsoftrc"
 
     # --- Display & Audio Sockets ---
     --ro-bind-try "$XDG_RUNTIME_DIR/wayland-0" "$XDG_RUNTIME_DIR/wayland-0"
