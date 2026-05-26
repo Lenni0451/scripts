@@ -13,11 +13,25 @@ for conf_dir in /etc/java*; do
   fi
 done
 
-# Expose D-Bus so the CLI can talk to the host's secret service (keyring)
+# Expose a D-Bus Proxy so the CLI can talk to the host's secret service (keyring)
+# 1. Create a temporary directory for the filtered proxy socket
+PROXY_DIR=$(mktemp -d -t dbus-proxy-XXXXXX)
+PROXY_SOCKET="$PROXY_DIR/bus"
+
+# 2. Spin up the proxy in the background
+# --filter blocks everything by default
+# --talk=org.freedesktop.secrets explicitly allows keyring access
+xdg-dbus-proxy "$XDG_RUNTIME_DIR/bus" "$PROXY_SOCKET" \
+    --filter \
+    --talk=org.freedesktop.secrets &
+PROXY_PID=$!
+
+# Ensure the proxy dies when your script exits
+trap 'kill $PROXY_PID; rm -rf "$PROXY_DIR"' EXIT
+
 DBUS_BINDS=()
-if [ -n "$XDG_RUNTIME_DIR" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
-  # Recreate the runtime directory structure on the tmpfs before binding the socket
-  DBUS_BINDS+=(--dir "$XDG_RUNTIME_DIR" --bind "$XDG_RUNTIME_DIR/bus" "$XDG_RUNTIME_DIR/bus")
+if [ -n "$XDG_RUNTIME_DIR" ]; then
+  DBUS_BINDS+=(--dir "$XDG_RUNTIME_DIR" --bind "$PROXY_SOCKET" "$XDG_RUNTIME_DIR/bus")
 fi
 
 systemd-run --user --scope \
