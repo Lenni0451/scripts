@@ -20,7 +20,10 @@ if [ -n "$XDG_RUNTIME_DIR" ] && [ -S "$XDG_RUNTIME_DIR/bus" ]; then
   DBUS_BINDS+=(--dir "$XDG_RUNTIME_DIR" --bind "$XDG_RUNTIME_DIR/bus" "$XDG_RUNTIME_DIR/bus")
 fi
 
-bwrap \
+systemd-run --user --scope \
+  -p TasksMax=2048 \
+  -p MemoryMax=8G \
+  bwrap \
   --unshare-all \
   --share-net \
   --uid "$(id -u)" \
