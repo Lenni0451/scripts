@@ -68,4 +68,4 @@ systemd-run --user --scope \
   --setenv HOME "$HOME" \
   --setenv USER "$USER" \
   --setenv DBUS_SESSION_BUS_ADDRESS "$DBUS_SESSION_BUS_ADDRESS" \
-  agy --dangerously-skip-permissions "$@"
+  agy "$@"
