@@ -21,7 +21,7 @@ PROXY_SOCKET="$PROXY_DIR/bus"
 # 2. Spin up the proxy in the background
 # --filter blocks everything by default
 # --talk=org.freedesktop.secrets explicitly allows keyring access
-xdg-dbus-proxy "$XDG_RUNTIME_DIR/bus" "$PROXY_SOCKET" \
+xdg-dbus-proxy "unix:path=$XDG_RUNTIME_DIR/bus" "$PROXY_SOCKET" \
     --filter \
     --talk=org.freedesktop.secrets &
 PROXY_PID=$!
