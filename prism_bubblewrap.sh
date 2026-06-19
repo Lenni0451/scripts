@@ -126,7 +126,9 @@ BWRAP_ARGS=(
     # Optional: Allow MangoHud configurations to pass through
     --ro-bind-try "$MANGOHUD_CONF" "$MANGOHUD_CONF"
 
-    # --- Target Instance (Read/Write) ---
+    # --- Target Instance ---
+    --ro-bind-try "$PWD/../libraries" "$PWD/../libraries"
+    --ro-bind-try "$PWD/../natives" "$PWD/../natives"
     --bind "$PWD" "$PWD"
 )
 
