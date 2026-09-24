@@ -126,6 +126,9 @@ BWRAP_ARGS=(
     # Optional: Allow MangoHud configurations to pass through
     --ro-bind-try "$MANGOHUD_CONF" "$MANGOHUD_CONF"
 
+    # Optional: Allow mitmproxy certificates (for mitmrun)
+    --ro-bind-try "$HOME/.mitmproxy" "$HOME/.mitmproxy"
+
     # --- Target Instance ---
     --ro-bind-try "$PWD/../libraries" "$PWD/../libraries"
     --ro-bind-try "$PWD/../natives" "$PWD/../natives"
