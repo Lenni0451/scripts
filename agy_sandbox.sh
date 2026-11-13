@@ -34,6 +34,10 @@ if [ -n "$XDG_RUNTIME_DIR" ]; then
   DBUS_BINDS+=(--dir "$XDG_RUNTIME_DIR" --bind "$PROXY_SOCKET" "$XDG_RUNTIME_DIR/bus")
 fi
 
+# Create the .antigravitycli directory and exclude it from git
+mkdir $PWD/.antigravitycli
+echo '*'>$PWD/.antigravitycli/.gitignore
+
 systemd-run --user --scope \
   -p TasksMax=2048 \
   -p MemoryMax=8G \
