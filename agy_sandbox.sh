@@ -66,7 +66,6 @@ systemd-run --user --scope \
   --bind "$HOME/.gradle" "$HOME/.gradle" \
   --bind "$PWD" "$PWD" \
   --chdir "$PWD" \
-  --tmpfs "$PWD/.antigravitycli" \
   --setenv JAVA_HOME "/usr/lib/jvm/default" \
   --setenv PATH "/usr/bin" \
   --setenv HOME "$HOME" \
